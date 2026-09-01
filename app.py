@@ -9,7 +9,7 @@ try:
 
     ocr.versao()
     OCR_ERRO = None
-except Exception as erro:  # tesseract ou pytesseract ausentes
+except Exception as erro:  # claude CLI ausente ou sem autenticacao
     ocr, OCR_ERRO = None, erro
 
 MIMES = {
@@ -55,23 +55,33 @@ with aba_colar:
 
 with aba_imagem:
     if OCR_ERRO:
-        st.warning(f"OCR indisponivel: {OCR_ERRO}")
-        st.code("brew install tesseract tesseract-lang   # macOS\n"
-                "sudo apt install tesseract-ocr tesseract-ocr-por   # Linux/VPS")
+        st.warning(f"Transcricao indisponivel: {OCR_ERRO}")
+        st.code("npm install -g @anthropic-ai/claude-code   # instala o CLI\n"
+                "claude                                     # autentica uma vez")
     else:
-        foto = st.file_uploader("Envie uma imagem", type=["png", "jpg", "jpeg", "webp"])
-        if not foto:
-            foto = st.camera_input("Ou tire uma foto agora")
+        foto = st.file_uploader("Envie uma imagem", type=ocr.FORMATOS)
+
+        # a webcam so existe em https ou localhost; pelo IP da rede o navegador nem pergunta
+        host = st.context.headers.get("host", "")
+        if host.startswith(("localhost", "127.0.0.1")):
+            if not foto:
+                foto = st.camera_input("Ou tire uma foto agora")
+        else:
+            st.caption("No celular, use o botao acima e escolha Tirar Foto ou Fototeca.")
 
         if foto:
-            with st.spinner("Lendo o texto da imagem..."):
-                texto_ocr = ocr.imagem_para_texto(foto.getvalue())
+            with st.spinner("Transcrevendo..."):
+                try:
+                    texto_ocr = ocr.imagem_para_markdown(foto.getvalue())
+                except Exception as erro:
+                    st.error(f"Falhou: {erro}")
+                    texto_ocr = ""
 
             if not texto_ocr:
                 st.error("Nao encontrei texto nessa imagem.")
             else:
                 texto_ocr = st.text_area(
-                    "Texto extraido (edite antes de baixar)", texto_ocr, height=300
+                    "Markdown gerado (edite antes de baixar)", texto_ocr, height=300
                 )
                 st.download_button(
                     "Baixar .md",

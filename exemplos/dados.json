@@ -1,0 +1,5 @@
+[
+    {"nome": "Ana", "idade": 20, "curso": "Engenharia"},
+    {"nome": "Bruno", "idade": 22, "curso": "Direito"},
+    {"nome": "Carla", "idade": 21, "curso": "Medicina"}
+]

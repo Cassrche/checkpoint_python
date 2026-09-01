@@ -1,5 +1,8 @@
 # streamlit run app.py
 
+import socket
+
+import qrcode
 import streamlit as st
 
 import conversor
@@ -19,6 +22,33 @@ MIMES = {
 }
 
 st.set_page_config(page_title="Conversor de Arquivos", page_icon=":arrows_counterclockwise:")
+
+def url_da_rede():
+    """Endereco da maquina na rede local, para abrir pelo celular."""
+    conexao = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        conexao.connect(("8.8.8.8", 80))  # nao envia nada, so resolve a rota de saida
+        ip = conexao.getsockname()[0]
+    except OSError:
+        return None  # sem rede
+    finally:
+        conexao.close()
+    return f"http://{ip}:{st.get_option('server.port')}"
+
+
+@st.cache_resource  # imprime uma vez por servidor, nao a cada rerun
+def mostrar_qrcode(endereco):
+    qr = qrcode.QRCode(border=1)
+    qr.add_data(endereco)
+    print(f"\n  Aponte a camera do celular:  {endereco}")
+    qr.print_ascii(invert=True)
+    return endereco
+
+
+_endereco = url_da_rede()
+if _endereco:
+    mostrar_qrcode(_endereco)
+
 
 st.title("Conversor de Arquivos")
 st.caption("Arraste um arquivo para a caixa abaixo, ou cole o conteudo na aba ao lado.")

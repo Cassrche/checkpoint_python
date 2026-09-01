@@ -1,43 +1,111 @@
 # streamlit run app.py
 
-import ast
-
 import streamlit as st
 
 import conversor
 
-OPCOES = {
-    "dict -> JSON": ("dict", conversor.dict_para_json, "saida.json"),
-    "dict -> CSV": ("dict", conversor.dict_para_csv, "saida.csv"),
-    "JSON -> CSV": ("json", conversor.json_para_csv, "saida.csv"),
-    "CSV -> JSON": ("csv", conversor.csv_para_json, "saida.json"),
-    "XLSX -> CSV": ("xlsx", conversor.xlsx_para_csv, "saida.csv"),
-    "CSV -> XLSX": ("csv", conversor.csv_para_xlsx, "saida.xlsx"),
+try:
+    import ocr
+
+    ocr.versao()
+    OCR_ERRO = None
+except Exception as erro:  # tesseract ou pytesseract ausentes
+    ocr, OCR_ERRO = None, erro
+
+MIMES = {
+    "csv": "text/csv",
+    "json": "application/json",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 
+st.set_page_config(page_title="Conversor de Arquivos", page_icon=":arrows_counterclockwise:")
+
 st.title("Conversor de Arquivos")
+st.caption("Arraste um arquivo para a caixa abaixo, ou cole o conteudo na aba ao lado.")
 
-opcao = st.sidebar.radio("Conversao:", list(OPCOES))
-entrada, converter, nome_saida = OPCOES[opcao]
+aba_arquivo, aba_colar, aba_imagem = st.tabs(
+    ["Arrastar arquivo", "Colar conteudo", "Foto para Markdown"]
+)
 
-if entrada == "dict":
-    dado = st.text_area("Digite o dict:", '{"nome": "Ana", "idade": 20}')
-else:
-    dado = st.file_uploader(f"Envie um arquivo .{entrada}", type=entrada)
+dados = nome = origem = None
 
-if dado and st.button("Converter"):
-    try:
-        if entrada == "dict":
-            dado = ast.literal_eval(dado)
-        elif entrada != "xlsx":
-            dado = dado.read().decode("utf-8")
+with aba_arquivo:
+    enviado = st.file_uploader(
+        "Solte o arquivo aqui",
+        type=list(conversor.FORMATOS),
+        label_visibility="collapsed",
+    )
+    if enviado:
+        dados = enviado.getvalue()
+        nome = enviado.name.rsplit(".", 1)[0]
+        origem = enviado.name.rsplit(".", 1)[-1].lower()
 
-        saida = converter(dado)
+with aba_colar:
+    with st.form("form_colar"):
+        texto = st.text_area(
+            "Cole aqui o conteudo (CSV ou JSON)",
+            height=180,
+            placeholder='{"nome": "Ana", "idade": 20}',
+        )
+        st.form_submit_button("Converter", type="primary")
+    if texto.strip() and not dados:
+        dados = texto.encode("utf-8")
+        nome = "colado"
+        origem = "json" if texto.lstrip()[0] in "{[" else "csv"
 
-        if isinstance(saida, str):
-            st.code(saida)
-        else:
-            st.success("Planilha gerada.")
-        st.download_button("Baixar", saida, nome_saida)
-    except Exception as erro:
-        st.error(f"Deu erro: {erro}")
+with aba_imagem:
+    if OCR_ERRO:
+        st.warning(f"OCR indisponivel: {OCR_ERRO}")
+        st.code("brew install tesseract tesseract-lang   # macOS\n"
+                "sudo apt install tesseract-ocr tesseract-ocr-por   # Linux/VPS")
+    else:
+        foto = st.file_uploader("Envie uma imagem", type=["png", "jpg", "jpeg", "webp"])
+        if not foto:
+            foto = st.camera_input("Ou tire uma foto agora")
+
+        if foto:
+            with st.spinner("Lendo o texto da imagem..."):
+                texto_ocr = ocr.imagem_para_texto(foto.getvalue())
+
+            if not texto_ocr:
+                st.error("Nao encontrei texto nessa imagem.")
+            else:
+                texto_ocr = st.text_area(
+                    "Texto extraido (edite antes de baixar)", texto_ocr, height=300
+                )
+                st.download_button(
+                    "Baixar .md",
+                    texto_ocr.encode("utf-8"),
+                    file_name="transcricao.md",
+                    mime="text/markdown",
+                    type="primary",
+                )
+
+if not dados:
+    st.stop()
+
+try:
+    tabela = conversor.ler(dados, origem)
+except Exception as erro:
+    st.error(f"Nao consegui ler o arquivo como .{origem}: {erro}")
+    st.stop()
+
+st.success(f"Lido como **{origem.upper()}** - {len(tabela)} linhas, {len(tabela.columns)} colunas.")
+st.dataframe(tabela.head(20), use_container_width=True)
+
+destinos = [f for f in conversor.FORMATOS if f != origem]
+destino = st.selectbox("Converter para:", destinos, format_func=str.upper)
+
+try:
+    saida = conversor.escrever(tabela, destino)
+except Exception as erro:
+    st.error(f"Erro ao gerar o .{destino}: {erro}")
+    st.stop()
+
+st.download_button(
+    f"Baixar {nome}.{destino}",
+    saida,
+    file_name=f"{nome}.{destino}",
+    mime=MIMES[destino],
+    type="primary",
+)
